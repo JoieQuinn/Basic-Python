@@ -1,0 +1,134 @@
+#combination of tutorials found on: Latent Dirichlet Allocation - GeeksforGeeks (https://www.geeksforgeeks.org/latent-dirichlet-allocation/) and Topic Modeling — LDA Mallet Implementation in Python — Part 2 | by Senol Kurt | The Startup | Medium (https://medium.com/swlh/topic-modeling-lda-mallet-implementation-in-python-part-2-602ffb38d396) with issues resolved
+
+import pandas as pd
+import string
+import spacy
+from pprint import pprint
+import gensim
+from gensim import corpora
+#This gives warning: DeprecationWarning: the imp module is deprecated in favour of importlib; see the module's documentation for alternative uses 
+import pyLDAvis
+import pyLDAvis.gensim_models as gensimvis
+from nltk.corpus import stopwords
+from gensim.models.coherencemodel import CoherenceModel
+import spacy.cli
+import en_core_web_md
+#if not, spacy.cli.download("en_core_web_md") 
+#You can now load the package via spacy.load('en_core_web_md')
+#then import
+
+#Imports not needed from original document:
+#import numpy as np
+#import nltk
+#import matplotlib.pyplot as plt
+#from nltk.corpus import wordnet as wn
+
+#”Used error_bad_lines=False” to handle pandas.errors.ParserError: unexpected end of data; this will not work forever: sys:1: FutureWarning: The error_bad_lines argument has been deprecated and will be removed in a future version.
+yelp_review = pd.read_csv('yelp_head_10k.csv', engine='python', encoding='utf-8', error_bad_lines=False)
+
+#Group as one statement by running a function
+Def printInfo():
+print('Number of Reviews: ' +str(len(yelp_review)))
+print('Unique Businesses: ' + str(len(yelp_review.groupby('business_id'))))
+print('Unique Users: ' + str(len(yelp_review.groupby('user_id'))))
+
+def clean_text(text):
+'''
+Creates a dictionary mapping each punctuation token in string.punctuation to empty string;
+Maps space to space; creates mapping table from keys to values in dict;
+Uses translate method to remove punct via mapping table; splits text and remembers
+Only words >3 characters and not digits; returns this remembered text, lowercase
+''' 
+...     delete_dict = {sp_char: '' for sp_char in string.punctuation}
+...     delete_dict[' '] = '  ' 
+...     table = str.maketrans(delete_dict)
+...     text1 = text.translate(table)
+...     textArr = text1.split()
+...     text2 = '  '.join([w for w in textArr if (not w.isdigit() and
+...             (not w.isdigit() and len(w) >3))])
+...     return text2.lower()
+...
+
+yelp_review['text'] = yelp_review['text'].apply(clean_text)
+print(yelp_review['text'])
+'''
+#This all works fine, but I don’t need it right now
+#uses lambda function to add new Series in pandas DataFrame containing
+#number of words in review
+yelp_review['Num_words_text'] = yelp_review['text'].apply(lambda x:len(str(x).split()))
+print(yelp_review['stars'].value_counts())
+print(len(yelp_review))
+max_review_data_sentence_length = yelp_review['Num_words_text'].max()
+max_review_data_sentence_length
+mask = (yelp_review['Num_words_text'] < 100 & (yelp_review['Num_words_text'] >= 20))
+df_short_reviews = yelp_review[mask]
+df_sampled = df_short_reviews.groupby('stars').apply(lambda x: x.sample(n=100)).reset_index(drop = True)
+print(len(df_short_reviews))
+'''
+
+def remove_stopwords(text):
+...     textArr = text.split(' ')
+...     rem_text = " ".join([i for i in textArr if i not in stop_words])
+...     return rem_text
+...
+stop_words = stopwords.words('english')
+yelp_review_stopped = yelp_review['text'].apply(remove_stopwords)
+yelp_review_stopped
+
+#Not this, <<text_list=yelp_review_stopped['text'].tolist()>> do this:
+text_list=yelp_review_stopped.tolist()
+print(text_list[2])
+
+#author forgot the “n”; adding n before lp will fix NameError: name 'nlp' is not defined
+nlp = en_core_web_md.load(disable=['parser', 'ner'])
+
+def lemmatization(texts,allowed_postags=['NOUN', 'ADJ']):
+...     output = []
+...     for sent in texts:
+...             doc = nlp(sent)
+...             output.append([token.lemma_ for token in doc if token.pos_ in allowed_postags])
+...     return output
+...
+
+tokenized_reviews = lemmatization(text_list)
+print(tokenized_reviews[2])
+dictionary = corpora.Dictionary(tokenized_reviews)
+doc_term_matrix = [dictionary.doc2bow(rev) for rev in tokenized_reviews]
+LDA = gensim.models.ldamodel.LdaModel
+lda_model = LDA(corpus=doc_term_matrix, id2word=dictionary, num_topics=10, random_state=100, chunksize=1000, passes=50, iterations=100)
+lda_model.print_topics()
+print('Perplexity: ', lda_model.log_perplexity(doc_term_matrix, total_docs=36))
+coherence_model_lda = CoherenceModel(model=lda_model, texts=tokenized_reviews, dictionary=dictionary, coherence='c_v')
+coherence_lda = coherence_model_lda.get_coherence()
+print('Coherence: ', coherence_lda)
+
+pprint(lda_model.show_topics(formatted=False))
+
+'''
+To save and load later
+import pickle
+pickle.dump(lda_model, open('lda_model_10k.pkl', 'wb')) 
+#load pickle >>lda_model = pickle.load(open('lda_model_eg.pkl', 'rb'))
+'''
+topics = [[(term, round(wt, 3)) for term, wt in lda_model.show_topic(n, topn=10)] for n in range(0, lda_model.num_topics)]
+topics_df = pd.DataFrame([[term for term, wt in topic] for topic in topics], columns = ['Term'+str(i) for i in range(1,11)], index=['Topic ' +str(t) for t in range(1, lda_model.num_topics+1)]).T
+topics_df.head()
+
+corpus = doc_term_matrix
+#handle OSError: [Errno 12] Cannot allocate memory by limiting n_jobs to 1)
+vis_data = gensimvis.prepare(lda_model, corpus, dictionary, n_jobs=1)
+
+#this visualization doesn’t work outside Jupyter Notebooks 
+#pyLDAvis.display(vis_data)
+#Instead to visualize through terminal:
+pyLDAvis.save_html(vis_data, 'LDA_Visualization10k.html')
+quit()
+
+#In terminal
+find /mnt/c -name "firefox.exe" 2>/dev/null
+#returns location (example): /mnt/c/Program Files/Mozilla Firefox/firefox.exe
+
+#navagate to file location and type ff location into terminal, followed by filename
+#example:
+"/mnt/c/Program Files/Mozilla Firefox/firefox.exe" LDA_Visualization.html
+
